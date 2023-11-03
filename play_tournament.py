@@ -25,6 +25,11 @@ def redirect_output(filename):
 
     return decorator
 
+# Wrap play_local_game so that I can get rid of stdout
+@redirect_output('/dev/null')
+def play_local_game_wrapper(white_player, black_player, game=None):
+    return play_local_game(white_player, black_player, game=game)
+
 class NoDaemonProcess(multiprocessing.Process):
     @property
     def daemon(self):
@@ -103,7 +108,6 @@ class Submission:
     def is_valid(self):
         return self.filename or self.is_bot
 
-@redirect_output('/dev/null')
 def play_game(white, black):
     try:
         white_bot_name, white_player_cls = load_player(white.filename)
@@ -122,10 +126,10 @@ def play_game(white, black):
     
     # print(f"{white.name} (w) vs {black.name} (b)")
 
-    game = LocalGame(0.1)
+    game = LocalGame()
 
     try:
-        winner_color, win_reason, history = play_local_game(
+        winner_color, win_reason, history = play_local_game_wrapper(
             white_player_cls(), black_player_cls(), game=game
         )
 
@@ -170,6 +174,9 @@ def play_game(white, black):
     # print('Winner: {}!'.format(winner_name))
     # print('Win Reason: {}'.format(win_reason))
 
+    # Print a game summary
+    print(f'{white.name} (w) vs {black.name} (b) -> {winner_name}')
+
     return winner, winner_id, winner_name, win_reason
 
 
@@ -196,21 +203,23 @@ if __name__ == "__main__":
     points = {i: 0 for i in submissions.keys()}
 
     tournament = create_balanced_round_robin(list(submissions.keys()))
+    playable_round = []
+    results = []
     for round_num, round in enumerate(tournament):
         # Print the round
-        print(f"Round {round_num + 1} playing with {len(round)} games")
+        # print(f"Round {round_num + 1} playing with {len(round)} games")
         # print("\n".join(['{} vs. {}'.format(m[0], m[1]) for m in round]))
         # print(round)
 
         # Play each game in the round in parallel using a pool. Each item in the round list is a tuple of two submissions, white vs black. These are the keys into the submissions dictionary. The values of this dictionary are what are passed into the function
         # with Pool() as pool:
-        pool = MyPool(len(round))
+        
         # results = pool.starmap(
         #     play_game, [(submissions[white], submissions[black]) for white, black in round]
         # )
 
-        results = []
-        playable_round = []
+        
+        
         for i, (white, black) in enumerate(round):
             
             if white is None:
@@ -236,26 +245,32 @@ if __name__ == "__main__":
                 if submissions[white].is_valid() and submissions[black].is_valid():
                     playable_round.append((white, black))
 
-            
+        # TODO: Add all games to queue but so that rounds can continue and not get
+        # stuck on a game that is taking a long time
 
-        for result in pool.starmap(
-            play_game,
-            [
-                (submissions[white], submissions[black])
-                for white, black in playable_round
-            ],
-        ):
-            results.append(result)
 
-        pool.close()
+    print(f'Playing {len(playable_round)} games')
 
-        # Print the results of the round
-        # print("Round {} Results".format(round_num + 1))
-        for result in results:
-            # print(result)
-            # Update points
-            if result[0] != "Draw" and result[0] != "ERROR":
-                points[result[1]] += 1
+    pool = MyPool()
+    
+    for result in pool.starmap(
+        play_game,
+        [
+            (submissions[white], submissions[black])
+            for white, black in playable_round
+        ],
+    ):
+        results.append(result)
+
+    pool.close()
+
+    # Print the results of the round
+    # print("Round {} Results".format(round_num + 1))
+    for result in results:
+        # print(result)
+        # Update points
+        if result[0] != "Draw" and result[0] != "ERROR":
+            points[result[1]] += 1
 
         # print()
 

@@ -1,4 +1,5 @@
 import os
+import time
 import glob
 from reconchess import load_player, play_local_game, LocalGame
 import chess
@@ -10,14 +11,12 @@ import random
 import multiprocessing
 import multiprocessing.pool
 
+
 def redirect_output(filename):
-
     def decorator(func):
-
         @wraps(func)
         def wrapper(*args, **kwargs):
-
-            with open(filename, 'w') as f:
+            with open(filename, "w") as f:
                 with redirect_stdout(f), redirect_stderr(f):
                     return func(*args, **kwargs)
 
@@ -25,10 +24,12 @@ def redirect_output(filename):
 
     return decorator
 
+
 # Wrap play_local_game so that I can get rid of stdout
-@redirect_output('/dev/null')
+@redirect_output("/dev/null")
 def play_local_game_wrapper(white_player, black_player, game=None):
     return play_local_game(white_player, black_player, game=game)
+
 
 class NoDaemonProcess(multiprocessing.Process):
     @property
@@ -43,12 +44,14 @@ class NoDaemonProcess(multiprocessing.Process):
 class NoDaemonContext(type(multiprocessing.get_context())):
     Process = NoDaemonProcess
 
+
 # We sub-class multiprocessing.pool.Pool instead of multiprocessing.Pool
 # because the latter is only a wrapper function, not a proper class.
 class MyPool(multiprocessing.pool.Pool):
     def __init__(self, *args, **kwargs):
-        kwargs['context'] = NoDaemonContext()
+        kwargs["context"] = NoDaemonContext()
         super(MyPool, self).__init__(*args, **kwargs)
+
 
 # https://gist.github.com/ih84ds/be485a92f334c293ce4f1c84bfba54c9
 def create_balanced_round_robin(players):
@@ -81,7 +84,7 @@ def create_balanced_round_robin(players):
     return s
 
 
-reconchess_bots = ["reconchess.bots.random_bot", "reconchess.bots.attacker_bot"]
+reconchess_bots = ["reconchess.bots.random_bot", "reconchess.bots.trout_bot"]
 
 
 class Submission:
@@ -97,7 +100,7 @@ class Submission:
             self.filename = self.filename[0] if len(self.filename) > 0 else None
             self.is_bot = False
         else:
-            self.name = bot_name.split(".")[2] + "_" + str(random.randint(0, 100))
+            self.name = bot_name.split(".")[2]
             self.path = None
             self.filename = bot_name
             self.is_bot = True
@@ -108,25 +111,28 @@ class Submission:
     def is_valid(self):
         return self.filename or self.is_bot
 
+
 def play_game(white, black):
     try:
         white_bot_name, white_player_cls = load_player(white.filename)
-    except:
+    except Exception as e:
         # Assign the winner to the other player
         winner = "black"
-        win_reason = "ERROR"
+        win_reason = "LOAD ERROR"
+        print(e)
         return winner, black.id, black.name, win_reason
     try:
         black_bot_name, black_player_cls = load_player(black.filename)
-    except:
+    except Exception as e:
         # Assign the winner to the other player
         winner = "white"
-        win_reason = "ERROR"
+        win_reason = "LOAD ERROR"
+        print(e)
         return winner, white.id, white.name, win_reason
-    
+
     # print(f"{white.name} (w) vs {black.name} (b)")
 
-    game = LocalGame()
+    game = LocalGame(seconds_per_player=60 * 7, full_turn_limit=50)
 
     try:
         winner_color, win_reason, history = play_local_game_wrapper(
@@ -165,17 +171,23 @@ def play_game(white, black):
     else:
         winner_name = "Draw"
 
-    # timestamp = datetime.datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
+    # Save the replay
+    replay_dir = "/mnt/data/home/andrew/reconchess/replays"
 
-    # replay_path = '{}-{}-{}-{}.json'.format(white_bot_name, black_bot_name, winner, timestamp)
+    timestamp = datetime.datetime.now().strftime("%Y_%m_%d-%H_%M_%S")
+
+    replay_path = "{}-{}-{}-{}.json".format(
+        white_bot_name, black_bot_name, winner, timestamp
+    )
+    replay_path = os.path.join(replay_dir, replay_path)
     # print('Saving replay to {}...'.format(replay_path))
-    # history.save(replay_path)
+    history.save(replay_path)
 
     # print('Winner: {}!'.format(winner_name))
     # print('Win Reason: {}'.format(win_reason))
 
     # Print a game summary
-    print(f'{white.name} (w) vs {black.name} (b) -> {winner_name}')
+    # print(f"{white.name} (w) vs {black.name} (b) -> {winner_name}")
 
     return winner, winner_id, winner_name, win_reason
 
@@ -192,8 +204,10 @@ if __name__ == "__main__":
         submission = Submission(i, student_submission_dir)
         submissions[i] = submission
 
-    # for i in range(10):
-    #     submissions[i] = Submission(i, bot_name=random.choice(reconchess_bots))
+    # Add all the bots
+    for i, bot in enumerate(reconchess_bots):
+        bot_id = i + len(submissions)
+        submissions[bot_id] = Submission(bot_id, bot_name=bot)
 
     # Get all the student names by reading until the '_' character in the directory name
     for i, student in submissions.items():
@@ -206,22 +220,7 @@ if __name__ == "__main__":
     playable_round = []
     results = []
     for round_num, round in enumerate(tournament):
-        # Print the round
-        # print(f"Round {round_num + 1} playing with {len(round)} games")
-        # print("\n".join(['{} vs. {}'.format(m[0], m[1]) for m in round]))
-        # print(round)
-
-        # Play each game in the round in parallel using a pool. Each item in the round list is a tuple of two submissions, white vs black. These are the keys into the submissions dictionary. The values of this dictionary are what are passed into the function
-        # with Pool() as pool:
-        
-        # results = pool.starmap(
-        #     play_game, [(submissions[white], submissions[black]) for white, black in round]
-        # )
-
-        
-        
         for i, (white, black) in enumerate(round):
-            
             if white is None:
                 results.append(
                     (
@@ -245,20 +244,14 @@ if __name__ == "__main__":
                 if submissions[white].is_valid() and submissions[black].is_valid():
                     playable_round.append((white, black))
 
-        # TODO: Add all games to queue but so that rounds can continue and not get
-        # stuck on a game that is taking a long time
+    print(f"Playing {len(playable_round)} games")
 
+    pool = MyPool(processes=30, maxtasksperchild=1)
 
-    print(f'Playing {len(playable_round)} games')
-
-    pool = MyPool()
-    
     for result in pool.starmap(
         play_game,
-        [
-            (submissions[white], submissions[black])
-            for white, black in playable_round
-        ],
+        [(submissions[white], submissions[black]) for white, black in playable_round],
+        chunksize=1,
     ):
         results.append(result)
 
@@ -277,5 +270,10 @@ if __name__ == "__main__":
     # Print the final leaderboard in descending order
     print("Final Leaderboard")
     sorted_points = sorted(points.items(), key=lambda x: x[1], reverse=True)
-    for i, point in enumerate(sorted_points):
-        print(f"{i+1}: {submissions[point[0]].name} - {point[1]}")
+    with open("leaderboard.txt", "w") as f:
+        for i, point in enumerate(sorted_points):
+            line = f"{i+1}: {submissions[point[0]].name} - {point[1]}"
+            print(line)
+            f.write(line + "\n")
+
+        f.close()

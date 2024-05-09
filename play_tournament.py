@@ -10,7 +10,9 @@ from contextlib import redirect_stdout, redirect_stderr
 import random
 import multiprocessing
 import multiprocessing.pool
+from dotenv import load_dotenv
 
+load_dotenv()
 
 def redirect_output(filename):
     def decorator(func):
@@ -172,7 +174,8 @@ def play_game(white, black):
         winner_name = "Draw"
 
     # Save the replay
-    replay_dir = "/mnt/data/home/andrew/reconchess/replays"
+    curr_dir = os.getcwd()
+    replay_dir = os.path.join(curr_dir, "replays")
 
     timestamp = datetime.datetime.now().strftime("%Y_%m_%d-%H_%M_%S")
 
@@ -205,8 +208,9 @@ if __name__ == "__main__":
         submissions[i] = submission
 
     # Add all the bots
+    num_human_subs = len(submissions)
     for i, bot in enumerate(reconchess_bots):
-        bot_id = i + len(submissions)
+        bot_id = i + num_human_subs
         submissions[bot_id] = Submission(bot_id, bot_name=bot)
 
     # Get all the student names by reading until the '_' character in the directory name

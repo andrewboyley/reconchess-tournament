@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import csv
 import glob
 from reconchess import load_player, play_local_game, LocalGame
 import chess
@@ -15,6 +16,9 @@ from colorama import Fore, Back, Style
 from dotenv import load_dotenv
 
 load_dotenv()
+
+SECONDS_PER_PLAYER = 10
+
 
 def redirect_output(filename):
     def decorator(func):
@@ -88,8 +92,7 @@ def create_balanced_round_robin(players):
     return s
 
 
-# reconchess_bots = ["reconchess.bots.random_bot", "reconchess.bots.trout_bot"]
-reconchess_bots = ["reconchess.bots.trout_bot"]
+reconchess_bots = ["reconchess.bots.random_bot", "reconchess.bots.trout_bot"]
 
 
 class Submission:
@@ -147,12 +150,14 @@ def save_replay(white_sub, black_sub, winner, history=None, tb=None):
         white_name = white_sub.name.lower()
         black_name = black_sub.name.lower()
 
-    replay_name = f'{white_name}_{black_name}.json'
+    replay_name = f"{white_name}_{black_name}.json"
     replay_path = os.path.join(replay_dir, replay_name)
 
     if history:
         history.save(replay_path)
     elif tb:
+        replay_name = f"{white_name}_{black_name}-ERROR.json"
+        replay_path = os.path.join(replay_dir, replay_name)
         # Just save the traceback in the json file
         with open(replay_path, "w") as f:
             f.write(tb)
@@ -192,14 +197,18 @@ def play_game(white_submission, black_submission):
 
         # Create the game
         game = LocalGame(
-            seconds_per_player=1, full_turn_limit=50
+            seconds_per_player=SECONDS_PER_PLAYER, full_turn_limit=50
         )  # Make this 60 * 7 seconds for the full one
 
         # Play the game
-        print(f"{Style.DIM}Playing {white_submission.name} vs {black_submission.name}{Style.RESET_ALL}")
+        print(
+            f"{Style.DIM}Playing {white_submission.name} vs {black_submission.name}{Style.RESET_ALL}"
+        )
         try:
+            white_obj = white_player_cls()
+            black_obj = black_player_cls()
             winner_color, win_reason, history = play_local_game_wrapper(
-                white_player_cls(), black_player_cls(), game=game
+                white_obj, black_obj, game=game
             )
             winner = (
                 white_submission if winner_color == chess.WHITE else black_submission
@@ -217,15 +226,17 @@ def play_game(white_submission, black_submission):
                 winner = white_submission
 
             if winner is None:
-                print(f'{Fore.RED}INTERNAL ERROR{Style.RESET_ALL}')
+                print(f"{Fore.RED}INTERNAL ERROR{Style.RESET_ALL}")
                 # save_replay(white_submission, black_submission, winner, tb=tb)
             else:
                 save_replay(white_submission, black_submission, winner, tb=tb)
 
-        game.end()
+            game.end()
 
     if winner:
-        print(f"{Fore.GREEN}Winner: {Style.BRIGHT}{winner.name}{Style.NORMAL}, Reason: {win_reason}{Style.RESET_ALL}")
+        print(
+            f"{Fore.GREEN}Winner: {Style.BRIGHT}{winner.name}{Style.NORMAL}, Reason: {win_reason}{Style.RESET_ALL}"
+        )
     else:
         pass
 
@@ -262,65 +273,62 @@ if __name__ == "__main__":
     results = []
     for round_num, round in enumerate(tournament):
         for i, (white, black) in enumerate(round):
-            if white is None:
-                results.append(
-                    (
-                        "Draw",
-                        black,
-                        submissions[black].name,
-                        "Odd number of players",
-                    )
-                )
-            elif black is None:
-                results.append(
-                    (
-                        "Draw",
-                        white,
-                        submissions[white].name,
-                        "Odd number of players",
-                    )
-                )
+            # if white is None or black is None or ('Katlego' not in submissions[white].name and 'Katlego' not in submissions[black].name):
+            if white is None or black is None:
+                results.append(None)
             else:
                 # Check to see if subs are valid
                 if submissions[white].is_valid() and submissions[black].is_valid():
                     playable_round.append((white, black))
 
     print(f"Playing {len(playable_round)} games")
+    games_left = len(playable_round)
 
-    # pool = MyPool(processes=5, maxtasksperchild=1)
+    pool = MyPool(processes=30, maxtasksperchild=1)
 
-    # for result in pool.starmap(
-    #     play_game,
-    #     [(submissions[white], submissions[black]) for white, black in playable_round],
-    #     chunksize=1,
-    # ):
-    #     results.append(result)
+    for result in pool.starmap(
+        play_game,
+        [(submissions[white], submissions[black]) for white, black in playable_round],
+        chunksize=1,
+    ):
+        results.append(result)
 
-    # pool.close()
+    pool.close()
 
-    for white, black in playable_round:
-        winner = play_game(submissions[white], submissions[black])
-        results.append(winner)
+    # for white, black in playable_round:
+    #     winner = play_game(submissions[white], submissions[black])
+    #     results.append(winner)
 
     # Print the results of the round
-    # print("Round {} Results".format(round_num + 1))
     for winner in results:
         # Update points
         if winner:
             points[winner.id] += 1
 
-
     # Print the final leaderboard in descending order
     print()
-    print('-'*50)
+    print("-" * 50)
     print("Final Leaderboard")
-    print('-'*50)
+    print("-" * 50)
     sorted_points = sorted(points.items(), key=lambda x: x[1], reverse=True)
-    with open("leaderboard.txt", "w") as f:
-        for i, point in enumerate(sorted_points):
-            line = f"{i+1}: {submissions[point[0]].name} - {point[1]}"
-            print(line)
-            f.write(line + "\n")
 
-        f.close()
-    sys.exit()
+    # Save the leaderboard to a csv file
+    f = open("leaderboard.csv", "w")
+    writer = csv.writer(f)
+    writer.writerow(["Rank", "Name", "Surname", "Points"])
+    print(
+        f"{'#'.rjust(3)} {'Name'.ljust(15)} {'Surname'.ljust(15)} {str('Points').rjust(3)}"
+    )
+    print()
+    for i, point in enumerate(sorted_points):
+        name = submissions[point[0]].name.split(" ")
+        if len(name) == 1:
+            surname = ""
+            name = name[0]
+        else:
+            name, surname = name
+        writer.writerow([i + 1, name, surname, point[1]])
+        print(
+            f"{str(i+1).rjust(3)} {name.ljust(15)} {surname.ljust(15)} {str(point[1]).rjust(3)}"
+        )
+    f.close()

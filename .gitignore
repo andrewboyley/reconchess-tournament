@@ -1,4 +1,5 @@
-subs/*
+subs*/*
 stockfish
 replays
 leaderboard.txt
+__pycache__

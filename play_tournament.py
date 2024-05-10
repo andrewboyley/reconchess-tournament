@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import glob
 from reconchess import load_player, play_local_game, LocalGame
@@ -10,6 +11,7 @@ from contextlib import redirect_stdout, redirect_stderr
 import random
 import multiprocessing
 import multiprocessing.pool
+from colorama import Fore, Back, Style
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -86,7 +88,8 @@ def create_balanced_round_robin(players):
     return s
 
 
-reconchess_bots = ["reconchess.bots.random_bot", "reconchess.bots.trout_bot"]
+# reconchess_bots = ["reconchess.bots.random_bot", "reconchess.bots.trout_bot"]
+reconchess_bots = ["reconchess.bots.trout_bot"]
 
 
 class Submission:
@@ -114,89 +117,123 @@ class Submission:
         return self.filename or self.is_bot
 
 
-def play_game(white, black):
+def load_submission(filename):
     try:
-        white_bot_name, white_player_cls = load_player(white.filename)
-    except Exception as e:
-        # Assign the winner to the other player
-        winner = "black"
-        win_reason = "LOAD ERROR"
-        print(e)
-        return winner, black.id, black.name, win_reason
-    try:
-        black_bot_name, black_player_cls = load_player(black.filename)
-    except Exception as e:
-        # Assign the winner to the other player
-        winner = "white"
-        win_reason = "LOAD ERROR"
-        print(e)
-        return winner, white.id, white.name, win_reason
-
-    # print(f"{white.name} (w) vs {black.name} (b)")
-
-    game = LocalGame(seconds_per_player=60 * 7, full_turn_limit=50)
-
-    try:
-        winner_color, win_reason, history = play_local_game_wrapper(
-            white_player_cls(), black_player_cls(), game=game
-        )
-
-        winner = "Draw" if winner_color is None else chess.COLOR_NAMES[winner_color]
+        sub_name, sub_class = load_player(filename)
     except:
-        # traceback.print_exc()
+        return None
 
-        # Get the traceback as a string
-        tb = traceback.format_exc()
+    return sub_name, sub_class
 
-        # Check whose traceback it is and assign the winner to the other player
-        if white.name in tb:
-            winner = "black"
-        elif black.name in tb:
-            winner = "white"
-        else:
-            winner = "ERROR"
+
+def save_replay(white_sub, black_sub, winner, history=None, tb=None):
+    """
+    winner is either "white", "black", or "draw"
+    """
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    replay_dir = os.path.join(root_dir, "replays")
+
+    if not os.path.exists(replay_dir):
+        os.makedirs(replay_dir)
+
+    # replay_path = "{}-{}-{}.json".format(white_sub.name, black_sub.name, winner)
+    if winner == white_sub:
+        white_name = white_sub.name.upper()
+        black_name = black_sub.name.lower()
+    elif winner == black_sub:
+        black_name = black_sub.name.upper()
+        white_name = white_sub.name.lower()
+    else:
+        white_name = white_sub.name.lower()
+        black_name = black_sub.name.lower()
+
+    replay_name = f'{white_name}_{black_name}.json'
+    replay_path = os.path.join(replay_dir, replay_name)
+
+    if history:
+        history.save(replay_path)
+    elif tb:
+        # Just save the traceback in the json file
+        with open(replay_path, "w") as f:
+            f.write(tb)
+            f.close()
+
+
+def play_game(white_submission, black_submission):
+    """
+    returns winner_submission
+    """
+
+    #  Load the white submission and black submission
+    white_loaded = load_submission(white_submission.filename)
+    black_loaded = load_submission(black_submission.filename)
+
+    win_reason = None
+    winner = None
+    history = None
+
+    # Check if there were problems loading the submissions
+    if not (white_loaded and black_loaded):
+        win_reason = "Load Error"
+        if not white_loaded and not black_loaded:
+            # Both submissions failed to load. Consider it a draw
+            winner = None
+        elif not white_loaded:
+            # Give black the win
+            winner = black_submission
+        elif not black_loaded:
+            # Give white the win
+            winner = white_submission
+    else:
+
+        # Both submission were succesfully loaded
+        white_cls_name, white_player_cls = white_loaded
+        black_cls_name, black_player_cls = black_loaded
+
+        # Create the game
+        game = LocalGame(
+            seconds_per_player=1, full_turn_limit=50
+        )  # Make this 60 * 7 seconds for the full one
+
+        # Play the game
+        print(f"{Style.DIM}Playing {white_submission.name} vs {black_submission.name}{Style.RESET_ALL}")
+        try:
+            winner_color, win_reason, history = play_local_game_wrapper(
+                white_player_cls(), black_player_cls(), game=game
+            )
+            winner = (
+                white_submission if winner_color == chess.WHITE else black_submission
+            )
+
+            save_replay(white_submission, black_submission, winner, history)
+        except:
+            tb = traceback.format_exc()
+            win_reason = "Runtime Error"
+            # One of the submissions had an error in their execution. Give the win to the other player
+            winner = None
+            if white_submission.name in tb:
+                winner = black_submission
+            elif black_submission.name in tb:
+                winner = white_submission
+
+            if winner is None:
+                print(f'{Fore.RED}INTERNAL ERROR{Style.RESET_ALL}')
+                # save_replay(white_submission, black_submission, winner, tb=tb)
+            else:
+                save_replay(white_submission, black_submission, winner, tb=tb)
+
         game.end()
 
-        win_reason = tb
-        # history = game.get_game_history()
-
-    # print("Game Over!")
-    winner_id = None
-    if winner == "white":
-        winner_name = white.name
-        winner_id = white.id
-    elif winner == "black":
-        winner_name = black.name
-        winner_id = black.id
-    elif winner == "ERROR":
-        winner_name = "ERROR"
+    if winner:
+        print(f"{Fore.GREEN}Winner: {Style.BRIGHT}{winner.name}{Style.NORMAL}, Reason: {win_reason}{Style.RESET_ALL}")
     else:
-        winner_name = "Draw"
+        pass
 
-    # Save the replay
-    curr_dir = os.getcwd()
-    replay_dir = os.path.join(curr_dir, "replays")
-
-    timestamp = datetime.datetime.now().strftime("%Y_%m_%d-%H_%M_%S")
-
-    replay_path = "{}-{}-{}-{}.json".format(
-        white_bot_name, black_bot_name, winner, timestamp
-    )
-    replay_path = os.path.join(replay_dir, replay_path)
-    # print('Saving replay to {}...'.format(replay_path))
-    history.save(replay_path)
-
-    # print('Winner: {}!'.format(winner_name))
-    # print('Win Reason: {}'.format(win_reason))
-
-    # Print a game summary
-    # print(f"{white.name} (w) vs {black.name} (b) -> {winner_name}")
-
-    return winner, winner_id, winner_name, win_reason
+    return winner
 
 
 if __name__ == "__main__":
-    submission_directory = "./subs"
+    submission_directory = "/home-mscluster/aboyley/reconchess-tournament/subs"
 
     # Get all directories (i.e. student submissions) in the submission directory
     student_submission_dirs = glob.glob(os.path.join(submission_directory, "*"))
@@ -250,29 +287,34 @@ if __name__ == "__main__":
 
     print(f"Playing {len(playable_round)} games")
 
-    pool = MyPool(processes=30, maxtasksperchild=1)
+    # pool = MyPool(processes=5, maxtasksperchild=1)
 
-    for result in pool.starmap(
-        play_game,
-        [(submissions[white], submissions[black]) for white, black in playable_round],
-        chunksize=1,
-    ):
-        results.append(result)
+    # for result in pool.starmap(
+    #     play_game,
+    #     [(submissions[white], submissions[black]) for white, black in playable_round],
+    #     chunksize=1,
+    # ):
+    #     results.append(result)
 
-    pool.close()
+    # pool.close()
+
+    for white, black in playable_round:
+        winner = play_game(submissions[white], submissions[black])
+        results.append(winner)
 
     # Print the results of the round
     # print("Round {} Results".format(round_num + 1))
-    for result in results:
-        # print(result)
+    for winner in results:
         # Update points
-        if result[0] != "Draw" and result[0] != "ERROR":
-            points[result[1]] += 1
+        if winner:
+            points[winner.id] += 1
 
-        # print()
 
     # Print the final leaderboard in descending order
+    print()
+    print('-'*50)
     print("Final Leaderboard")
+    print('-'*50)
     sorted_points = sorted(points.items(), key=lambda x: x[1], reverse=True)
     with open("leaderboard.txt", "w") as f:
         for i, point in enumerate(sorted_points):
@@ -281,3 +323,4 @@ if __name__ == "__main__":
             f.write(line + "\n")
 
         f.close()
+    sys.exit()

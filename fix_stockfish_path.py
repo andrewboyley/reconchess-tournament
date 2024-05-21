@@ -27,6 +27,13 @@ for student_submission_dir in student_submission_dirs:
         for i,line in enumerate(lines):
             # Replace chess.engine.SimpleEngine.popen_uci("*", setpgrp=True) with args.stockfish_path using a regex
             newline = re.sub(r'popen_uci\(.*\)', f'popen_uci("{stockfish_path}", setpgrp=True)', line)
+
+            # Replace /opt/stockfish/stockfish with args.stockfish_path
+            newline = re.sub(r'/opt/stockfish/stockfish', stockfish_path, newline)
+
+            # Replace stockfish_path='*' with stockfish_path=args.stockfish_path
+            newline = re.sub(r'stockfish_path.*=.*', f'stockfish_path="{stockfish_path}"', newline)
+
             # print the change
             if newline != line:
                 change_count += 1

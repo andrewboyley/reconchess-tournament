@@ -130,8 +130,9 @@ def load_submission(filename):
     error = None
     try:
         sub_name, sub_class = load_player(filename)
-    except Exception as e:
-        error = e
+    except:
+        tb = traceback.format_exc()
+        error = tb
 
     return sub_name, sub_class, error
 
@@ -243,9 +244,8 @@ def play_game(white_submission, black_submission):
                 print(
                     f"{white_submission.name} vs {black_submission.name}-{Fore.RED}INTERNAL ERROR{Style.RESET_ALL}"
                 )
-                save_replay(white_submission, black_submission, winner, tb=tb)
-            else:
-                save_replay(white_submission, black_submission, winner, tb=tb)
+            
+            save_replay(white_submission, black_submission, winner, tb=tb)
 
             game.end()
 

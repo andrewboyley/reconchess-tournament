@@ -15,10 +15,12 @@ import multiprocessing.pool
 from colorama import Fore, Back, Style
 from dotenv import load_dotenv
 import re
+from leaderboard_from_files import print_leaderboard
+import argparse
 
 load_dotenv()
 
-SECONDS_PER_PLAYER = 60
+SECONDS_PER_PLAYER = 10
 
 
 def redirect_output(filename):
@@ -106,7 +108,7 @@ class Submission:
         if dir is not None:
             # Check if dir is a file
             if os.path.isfile(dir):
-                
+
                 self.name = os.path.basename(dir).split("_")[0][:-3]
                 self.path = None
                 self.filename = dir
@@ -122,6 +124,8 @@ class Submission:
                 self.is_bot = False
         else:
             self.name = bot_name.split(".")[2]
+            # Replace the underscores with spaces
+            self.name = re.sub("_", " ", self.name)
             self.path = None
             self.filename = bot_name
             self.is_bot = True
@@ -253,7 +257,7 @@ def play_game(white_submission, black_submission):
                 print(
                     f"{white_submission.name} vs {black_submission.name}-{Fore.RED}INTERNAL ERROR{Style.RESET_ALL}"
                 )
-            
+
             save_replay(white_submission, black_submission, winner, tb=tb)
 
             game.end()
@@ -269,10 +273,17 @@ def play_game(white_submission, black_submission):
 
 
 if __name__ == "__main__":
-    submission_directory = "/home/andrew/Documents/reconchess-tournament/subs"
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "submission_directory",
+        help="Directory containing student submissions",
+        nargs="?",
+        default="/home-mscluster/aboyley/reconchess-tournament/subs",
+    )
+    args = parser.parse_args()
 
     # Get all directories (i.e. student submissions) in the submission directory
-    student_submission_dirs = glob.glob(os.path.join(submission_directory, "*"))
+    student_submission_dirs = glob.glob(os.path.join(args.submission_directory, "*"))
     submissions = {}
 
     # Create a Submission object for each student submission
@@ -290,70 +301,46 @@ if __name__ == "__main__":
     for i, student in submissions.items():
         print(f"{i}: {student.name}")
 
-    # Create a leaderboard
-    points = {i: 0 for i in submissions.keys()}
-
     tournament = create_balanced_round_robin(list(submissions.keys()))
     playable_round = []
-    results = []
+    # results = []
     for round_num, round in enumerate(tournament):
         for i, (white, black) in enumerate(round):
             # if white is None or black is None or ('Katlego' not in submissions[white].name and 'Katlego' not in submissions[black].name):
             if white is None or black is None:
-                results.append(None)
+                # results.append(None)
+                continue
             else:
                 # Check to see if subs are valid
                 if submissions[white].is_valid() and submissions[black].is_valid():
                     playable_round.append((white, black))
 
     print(f"Playing {len(playable_round)} games")
-    games_left = len(playable_round)
 
     pool = MyPool(processes=os.cpu_count() - 1, maxtasksperchild=1)
+    # Create a leaderboard
+    points = {submissions[i].name: 0 for i in submissions.keys()}
 
-    for result in pool.starmap(
-        play_game,
-        [(submissions[white], submissions[black]) for white, black in playable_round],
-        chunksize=1,
-    ):
-        results.append(result)
+    try:
+        for winner in pool.starmap(
+            play_game,
+            [
+                (submissions[white], submissions[black])
+                for white, black in playable_round
+            ],
+            chunksize=1,
+        ):
+            if winner:
+                points[winner.name] += 1
 
-    pool.close()
+    except KeyboardInterrupt:
+        print("Caught KeyboardInterrupt, terminating workers")
+        pool.terminate()
+    finally:
+        pool.close()
 
     # for white, black in playable_round:
     #     winner = play_game(submissions[white], submissions[black])
     #     results.append(winner)
 
-    # Print the results of the round
-    for winner in results:
-        # Update points
-        if winner:
-            points[winner.id] += 1
-
-    # Print the final leaderboard in descending order
-    print()
-    print("-" * 50)
-    print("Final Leaderboard")
-    print("-" * 50)
-    sorted_points = sorted(points.items(), key=lambda x: x[1], reverse=True)
-
-    # Save the leaderboard to a csv file
-    f = open("leaderboard.csv", "w")
-    writer = csv.writer(f)
-    writer.writerow(["Rank", "Name", "Surname", "Points"])
-    print(
-        f"{'#'.rjust(3)} {'Name'.ljust(15)} {'Surname'.ljust(15)} {str('Points').rjust(3)}"
-    )
-    print()
-    for i, point in enumerate(sorted_points):
-        name = submissions[point[0]].name.split(" ")
-        if len(name) == 1:
-            surname = ""
-            name = name[0]
-        else:
-            name, surname = name
-        writer.writerow([i + 1, name, surname, point[1]])
-        print(
-            f"{str(i+1).rjust(3)} {name.ljust(15)} {surname.ljust(15)} {str(point[1]).rjust(3)}"
-        )
-    f.close()
+    print_leaderboard(points, save_csv=False)

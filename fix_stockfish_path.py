@@ -24,7 +24,7 @@ stockfish_path = args.stockfish_path
 # student_submission_dirs = glob.glob(os.path.join(args.path, '*'))
 
 change_count = 0
-files = glob.glob(os.path.join(args.path, "*.py"))
+files = glob.glob(os.path.join(args.path, "**/*.py"),recursive=True)
 print(f"Found {len(files)} files")
 for filename in files:
     # Get the submission file name that ends in .py
@@ -41,10 +41,12 @@ for filename in files:
             newline = re.sub(r'popen_uci\(.*\)', f'popen_uci("{stockfish_path}", setpgrp=True)', line)
 
             # Replace /opt/stockfish/stockfish with args.stockfish_path
-            newline = re.sub(r'/opt/stockfish/stockfish', stockfish_path, newline)
+            newline = re.sub(r"'.*\/opt\/stockfish\/stockfish'", f"'{stockfish_path}'", newline)
+            newline = re.sub(r'".*\/opt\/stockfish\/stockfish"', f"'{stockfish_path}'", newline)
 
             # Replace stockfish_path='*' with stockfish_path=args.stockfish_path
             newline = re.sub(r'stockfish_path.*=.*', f'stockfish_path="{stockfish_path}"', newline)
+            newline = re.sub(r'STOCKFISH_PATH.*=.*', f'STOCKFISH_PATH="{stockfish_path}"', newline)
 
             # print the change
             if newline != line:

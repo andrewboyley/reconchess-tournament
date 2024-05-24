@@ -6,3 +6,6 @@
 !fix_stockfish_path.py
 !play_tournament.py
 !roundrobin.py
+!filter_buggy_replays.sh
+!leaderboard_from_files.py
+!environment.yml

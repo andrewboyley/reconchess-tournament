@@ -1,26 +1,21 @@
 import os
-import sys
-import time
-import csv
 import glob
 from reconchess import load_player, play_local_game, LocalGame
 import chess
 import traceback
-import datetime
 from functools import wraps
 from contextlib import redirect_stdout, redirect_stderr
-import random
 import multiprocessing
 import multiprocessing.pool
 from colorama import Fore, Back, Style
 from dotenv import load_dotenv
 import re
-from leaderboard_from_files import print_leaderboard
+from leaderboard_from_files import print_leaderboard, read_results
 import argparse
 
 load_dotenv()
 
-SECONDS_PER_PLAYER = 10
+SECONDS_PER_PLAYER = 60
 
 
 def redirect_output(filename):
@@ -282,9 +277,10 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    submissions = {}
+
     # Get all directories (i.e. student submissions) in the submission directory
     student_submission_dirs = glob.glob(os.path.join(args.submission_directory, "*"))
-    submissions = {}
 
     # Create a Submission object for each student submission
     for i, student_submission_dir in enumerate(student_submission_dirs):
@@ -319,7 +315,7 @@ if __name__ == "__main__":
 
     pool = MyPool(processes=os.cpu_count() - 1, maxtasksperchild=1)
     # Create a leaderboard
-    points = {submissions[i].name: 0 for i in submissions.keys()}
+    points = {i: 0 for i in submissions.keys()}
 
     try:
         for winner in pool.starmap(
@@ -331,11 +327,14 @@ if __name__ == "__main__":
             chunksize=1,
         ):
             if winner:
-                points[winner.name] += 1
-
+                points[winner.id] += 1
+        # Convert from id to name
+        points = {submissions[k].name: v for k, v in points.items()}
     except KeyboardInterrupt:
         print("Caught KeyboardInterrupt, terminating workers")
         pool.terminate()
+
+        points = read_results()
     finally:
         pool.close()
 
@@ -343,4 +342,4 @@ if __name__ == "__main__":
     #     winner = play_game(submissions[white], submissions[black])
     #     results.append(winner)
 
-    print_leaderboard(points, save_csv=False)
+    print_leaderboard(points, save_csv=True)

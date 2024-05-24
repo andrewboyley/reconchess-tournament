@@ -1,6 +1,8 @@
-subs*/*
-stockfish
-replays
-leaderboard.txt
-__pycache__
-leaderboard.csv
+*
+
+
+!stockfish
+!.gitignore
+!fix_stockfish_path.py
+!play_tournament.py
+!roundrobin.py

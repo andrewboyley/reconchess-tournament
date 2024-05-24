@@ -14,10 +14,11 @@ import multiprocessing
 import multiprocessing.pool
 from colorama import Fore, Back, Style
 from dotenv import load_dotenv
+import re
 
 load_dotenv()
 
-SECONDS_PER_PLAYER = 10
+SECONDS_PER_PLAYER = 60
 
 
 def redirect_output(filename):
@@ -92,21 +93,33 @@ def create_balanced_round_robin(players):
     return s
 
 
-reconchess_bots = ["reconchess.bots.random_bot", "reconchess.bots.trout_bot"]
+reconchess_bots = [
+    "reconchess.bots.random_bot",
+    "reconchess.bots.attacker_bot",
+    "reconchess.bots.trout_bot",
+]
 
 
 class Submission:
     def __init__(self, id, dir=None, bot_name=None):
         self.id = id
         if dir is not None:
-            self.name = os.path.basename(dir).split("_")[0]
-            self.path = dir
+            # Check if dir is a file
+            if os.path.isfile(dir):
+                
+                self.name = os.path.basename(dir).split("_")[0][:-3]
+                self.path = None
+                self.filename = dir
+                self.is_bot = False
+            else:
+                self.name = os.path.basename(dir).split("_")[0]
+                self.path = dir
 
-            # Get the submission file name that ends in .py
-            self.filename = glob.glob(os.path.join(dir, "*.py"))
-            # If not an empty list, get the first value, else None
-            self.filename = self.filename[0] if len(self.filename) > 0 else None
-            self.is_bot = False
+                # Get the submission file name that ends in .py
+                self.filename = glob.glob(os.path.join(dir, "*.py"))
+                # If not an empty list, get the first value, else None
+                self.filename = self.filename[0] if len(self.filename) > 0 else None
+                self.is_bot = False
         else:
             self.name = bot_name.split(".")[2]
             self.path = None

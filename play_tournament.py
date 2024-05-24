@@ -95,8 +95,8 @@ def create_balanced_round_robin(players):
 
 reconchess_bots = [
     "reconchess.bots.random_bot",
-    "reconchess.bots.attacker_bot",
     "reconchess.bots.trout_bot",
+    "reconchess.bots.attacker_bot",
 ]
 
 
@@ -134,12 +134,16 @@ class Submission:
 
 
 def load_submission(filename):
+    sub_name = None
+    sub_class = None
+    error = None
     try:
         sub_name, sub_class = load_player(filename)
     except:
-        return None
+        tb = traceback.format_exc()
+        error = tb
 
-    return sub_name, sub_class
+    return sub_name, sub_class, error
 
 
 def save_replay(white_sub, black_sub, winner, history=None, tb=None):
@@ -183,30 +187,37 @@ def play_game(white_submission, black_submission):
     """
 
     #  Load the white submission and black submission
-    white_loaded = load_submission(white_submission.filename)
-    black_loaded = load_submission(black_submission.filename)
+    white_cls_name, white_player_cls, white_error = load_submission(
+        white_submission.filename
+    )
+    black_cls_name, black_player_cls, black_error = load_submission(
+        black_submission.filename
+    )
 
     win_reason = None
     winner = None
     history = None
 
     # Check if there were problems loading the submissions
-    if not (white_loaded and black_loaded):
+    if white_error is not None or black_error is not None:
+        tb = None
         win_reason = "Load Error"
-        if not white_loaded and not black_loaded:
+        if white_error is not None and black_error is not None:
             # Both submissions failed to load. Consider it a draw
             winner = None
-        elif not white_loaded:
+        elif white_error is not None:
             # Give black the win
             winner = black_submission
-        elif not black_loaded:
+            tb = white_error
+        elif black_error is not None:
             # Give white the win
             winner = white_submission
-    else:
+            tb = black_error
 
-        # Both submission were succesfully loaded
-        white_cls_name, white_player_cls = white_loaded
-        black_cls_name, black_player_cls = black_loaded
+        if tb:
+            save_replay(white_submission, black_submission, winner, tb=tb)
+
+    else:
 
         # Create the game
         game = LocalGame(
@@ -239,10 +250,11 @@ def play_game(white_submission, black_submission):
                 winner = white_submission
 
             if winner is None:
-                print(f"{Fore.RED}INTERNAL ERROR{Style.RESET_ALL}")
-                # save_replay(white_submission, black_submission, winner, tb=tb)
-            else:
-                save_replay(white_submission, black_submission, winner, tb=tb)
+                print(
+                    f"{white_submission.name} vs {black_submission.name}-{Fore.RED}INTERNAL ERROR{Style.RESET_ALL}"
+                )
+            
+            save_replay(white_submission, black_submission, winner, tb=tb)
 
             game.end()
 
@@ -257,7 +269,7 @@ def play_game(white_submission, black_submission):
 
 
 if __name__ == "__main__":
-    submission_directory = "/home-mscluster/aboyley/reconchess-tournament/subs"
+    submission_directory = "/home/andrew/Documents/reconchess-tournament/subs"
 
     # Get all directories (i.e. student submissions) in the submission directory
     student_submission_dirs = glob.glob(os.path.join(submission_directory, "*"))
@@ -297,7 +309,7 @@ if __name__ == "__main__":
     print(f"Playing {len(playable_round)} games")
     games_left = len(playable_round)
 
-    pool = MyPool(processes=30, maxtasksperchild=1)
+    pool = MyPool(processes=os.cpu_count() - 1, maxtasksperchild=1)
 
     for result in pool.starmap(
         play_game,

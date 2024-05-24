@@ -15,7 +15,7 @@ import argparse
 
 load_dotenv()
 
-SECONDS_PER_PLAYER = 60
+SECONDS_PER_PLAYER = 60*7
 
 
 def redirect_output(filename):

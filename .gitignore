@@ -1,6 +1,6 @@
 *
 
-
+!fix_duplicate_submissions.py
 !stockfish
 !.gitignore
 !fix_stockfish_path.py

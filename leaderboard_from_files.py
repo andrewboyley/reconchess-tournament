@@ -1,14 +1,16 @@
 import os
 import csv
 import glob
+import argparse
 
 
-def read_results(replays_dir="/home-mscluster/aboyley/reconchess-tournament/replays"):
+def read_results(replays_dir="./replays"):
     # Return a dictionary with the results of the tournament
     # Each file in the replays dir looks like <whitename>_<blackname>-ERROR.json
     # The name which is capitalized is the winner
     results = {}
     files = glob.glob(os.path.join(replays_dir, "*.json"))
+    print(f"Found {len(files)} replay files")
     for file in files:
         filename = os.path.basename(file)[:-5]
         white, black = filename.split("-")[0].split("_")
@@ -67,5 +69,16 @@ def print_leaderboard(points, save_csv=False):
 
 
 if __name__ == "__main__":
-    results = read_results()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "replays_dir",
+        type=str,
+        help="Directory containing the replay files",
+        nargs="?",
+        default="./replays",
+    )
+    args = parser.parse_args()
+
+    results = read_results(args.replays_dir)
+
     print_leaderboard(results)

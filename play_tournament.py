@@ -15,7 +15,7 @@ import argparse
 
 load_dotenv()
 
-SECONDS_PER_PLAYER = 60*7
+SECONDS_PER_PLAYER = 60 * 7
 
 
 def redirect_output(filename):
@@ -131,6 +131,7 @@ class Submission:
     def is_valid(self):
         return self.filename or self.is_bot
 
+args = None
 
 def load_submission(filename):
     sub_name = None
@@ -149,8 +150,12 @@ def save_replay(white_sub, black_sub, winner, history=None, tb=None):
     """
     winner is either "white", "black", or "draw"
     """
-    root_dir = os.path.dirname(os.path.abspath(__file__))
-    replay_dir = os.path.join(root_dir, "replays")
+    if args.replay_dir:
+        replay_dir = args.replay_dir
+    else:
+        root_dir = os.path.dirname(os.path.abspath(__file__))
+        # TODO: Use args.replay_dir
+        replay_dir = os.path.join(root_dir, "replays")
 
     if not os.path.exists(replay_dir):
         os.makedirs(replay_dir)
@@ -233,9 +238,16 @@ def play_game(white_submission, black_submission):
             winner_color, win_reason, history = play_local_game_wrapper(
                 white_obj, black_obj, game=game
             )
-            winner = (
-                white_submission if winner_color == chess.WHITE else black_submission
-            )
+
+            # If it was a TURN_LIMIT, it is a draw
+            if win_reason.name == "TURN_LIMIT":
+                winner = None
+            else:
+                winner = (
+                    white_submission
+                    if winner_color == chess.WHITE
+                    else black_submission
+                )
 
             save_replay(white_submission, black_submission, winner, history)
         except:
@@ -275,9 +287,21 @@ if __name__ == "__main__":
         nargs="?",
         default="/home-mscluster/aboyley/reconchess-tournament/subs",
     )
+    parser.add_argument(
+        "--single-submission",
+        help="Directory containing a single submission that will play against all other submissions",
+        default=None,
+    )
+    parser.add_argument(
+        "--rerun-timeouts", help="Rerun games that timed out", default="./replays"
+    )
+    parser.add_argument(
+        "--replay-dir", help="Directory to save replays", default="./replays"
+    )
     args = parser.parse_args()
 
     submissions = {}
+    playable_round = []
 
     # Get all directories (i.e. student submissions) in the submission directory
     student_submission_dirs = glob.glob(os.path.join(args.submission_directory, "*"))
@@ -293,27 +317,63 @@ if __name__ == "__main__":
         bot_id = i + num_human_subs
         submissions[bot_id] = Submission(bot_id, bot_name=bot)
 
-    # Get all the student names by reading until the '_' character in the directory name
-    for i, student in submissions.items():
-        print(f"{i}: {student.name}")
+        # Check if we have to run a tournament with just the games that timed out
+    if args.rerun_timeouts:
+        # Read in every file in the replay directory
+        replay_files = glob.glob(os.path.join(args.rerun_timeouts, "*.json"))
+        for replay_file in replay_files:
+            # Check if TIMEOUT is in the file
+            with open(replay_file, "r") as f:
+                contents = f.read()
+                if "TIMEOUT" in contents:
+                    # Get the names of the submissions
+                    white_name = os.path.basename(replay_file).split("_")[0]
+                    black_name = (
+                        os.path.basename(replay_file).split("_")[1].split(".")[0]
+                    )
 
-    tournament = create_balanced_round_robin(list(submissions.keys()))
-    playable_round = []
-    # results = []
-    for round_num, round in enumerate(tournament):
-        for i, (white, black) in enumerate(round):
-            # if white is None or black is None or ('Katlego' not in submissions[white].name and 'Katlego' not in submissions[black].name):
-            if white is None or black is None:
-                # results.append(None)
-                continue
-            else:
-                # Check to see if subs are valid
-                if submissions[white].is_valid() and submissions[black].is_valid():
-                    playable_round.append((white, black))
+                    # Get the submission objects
+                    white_sub = None
+                    black_sub = None
+                    for sub in submissions.values():
+                        if sub.name.lower() == white_name.lower():
+                            white_sub = sub
+                        elif sub.name.lower() == black_name.lower():
+                            black_sub = sub
+
+                    # Add the game to the playable_round
+                    playable_round.append((white_sub.id, black_sub.id))
+    else:
+        # Get all the student names by reading until the '_' character in the directory name
+        for i, student in submissions.items():
+            print(f"{i}: {student.name}")
+
+        tournament = create_balanced_round_robin(list(submissions.keys()))
+
+        # results = []
+        for round_num, round in enumerate(tournament):
+            for i, (white, black) in enumerate(round):
+                if white is None or black is None:
+                    # results.append(None)
+                    continue
+                else:
+
+                    # If we have a single submission argument, only include games with them
+                    if args.single_submission:
+                        white_path = submissions[white].path
+                        black_path = submissions[black].path
+                        if (
+                            white_path != args.single_submission
+                            and black_path != args.single_submission
+                        ):
+                            continue
+                    # Check to see if subs are valid
+                    if submissions[white].is_valid() and submissions[black].is_valid():
+                        playable_round.append((white, black))
 
     print(f"Playing {len(playable_round)} games")
 
-    pool = MyPool(processes=os.cpu_count() - 1, maxtasksperchild=1)
+    pool = MyPool(processes=10, maxtasksperchild=1)
     # Create a leaderboard
     points = {i: 0 for i in submissions.keys()}
 
